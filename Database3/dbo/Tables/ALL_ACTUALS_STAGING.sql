@@ -4,6 +4,7 @@
     [REFRENCE]    CHAR (31)     NOT NULL,
     [DSCRIPTN]    CHAR (31)     NOT NULL,
     [PROJ]        VARCHAR (50)  NULL,
-    [DEX_ROW_TS]  DATETIME      NOT NULL
+    [DEX_ROW_TS]  DATETIME      NOT NULL, 
+    [rtyrt] NCHAR(10) NULL
 );
 

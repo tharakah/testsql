@@ -1,0 +1,7193 @@
+﻿
+
+
+
+
+
+
+
+
+CREATE VIEW [dbo].[view_ALL_ACTUALS]
+AS
+
+/**************************************************************************************************
+-- view_PL_Actuals;   40000 - 99999 
+Derived FROM view_COGSActuals:  Provides details on all entries that hit any accounts in the 60000 - 70000 range (COGS).
+Queries all GP companies
+Requirements:
+1. Linked server to Dynamics GP production SQL server, using
+datareader SQL user
+2. Create all views below in any new GP companies
+3. func_DatesInRange must be deployed
+4. view_PENRates must be deployed
+5. LU_COST_ABBRV table must be deployed and pop'd
+Note: Using NOLOCKs as per Dynamics GP best practicies to avoid
+table locks.
+2014-12-16  	TR		Initial development
+2014-12-17		TR		Fixed VENDORCODES
+2014-12-24		TR		Expanded view to all companies
+Configured conversion calculations and exchange rates
+for all new companies to view
+2015-01-28		TR		Added second column to store seg5
+2015-08-26		TR		Adding new companies to view, updated requirements
+2015-10-26		TR		Commented out companies: Gap Shipping, Planeterra, TJ
+2017-03-05		GL		Created view_PL_Actuals from Orig view
+2017-04-06		GL		Created view_ALL_Actuals from Orig view
+2017-04-10		GL		Added Projects
+2017-05-24		TR		Added unions for legal entities 33,51,52,53,55,56,61,86
+2017-09-19		TR		Added union for company 65
+2018-01-09		LE		Add in DSCRIPTN in addition to REFRENCE as a way to identify a project code
+
+**************************************************************************************************/
+SELECT
+	SEG5_MAIN + CONVERT(varchar, JRNENTRY) + RIGHT('00' + COMPANY_MEMBERKEY, 3) + RIGHT('000000000' + CONVERT(varchar, DEX_ROW_ID), 8) + RIGHT(FISCALDATE, 2) + LEFT(FISCALDATE, 4) ROW_KEY,
+	[COMPANY_MEMBERKEY],
+	[COMPANY],
+	[DATNAME],
+	[FUNCTIONAL_CURNCYID],
+	[TRIPCODE],
+	[CATEGORY],
+	[PAID_BY],
+	[VENDOR_CODE],
+	[VENDOR_NAME],
+	[POSTINGUSER],
+	[FISCALDATE],
+	[ORGNET],
+	[FUNCNET],
+	[ACTINDX],
+	LTRIM(RTRIM([SEG1_COMPANY])) SEG1_COMPANY,
+	RTRIM(LTRIM([SEG2_TERRITORY])) SEG2_TERRITORY,
+	RTRIM(LTRIM([SEG3_DEPT])) SEG3_DEPT,
+	RTRIM(LTRIM([SEG4_OFFICE])) SEG4_OFFICE,
+	RTRIM(LTRIM([SEG5_MAIN])) SEG5_MAIN,
+	RTRIM(LTRIM([SEG5_SERV])) SEG5_SERV,
+	[ACTDESCR],
+	[JRNENTRY],
+	[TRXDATE],
+	[REFRENCE],
+	[DSCRIPTN],
+	[SOURCDOC],
+	[ORDOCNUM],
+	[ORGNTSRC],
+	[GLCURNCYID],
+	[ORDBTAMT],
+	[DEBITAMT],
+	[ORCRDAMT],
+	[CRDTAMNT],
+	[ORPSTDDT],
+	[CADNET],
+	[USDNET],
+	[VCHRNMBR],
+	[VENDORID],
+	[DOCTYPE],
+	[DOCDATE],
+	[DOCNUMBR],
+	[DOCAMNT],
+	[CURTRXAM],
+	[DISTKNAM],
+	[DISCAMNT],
+	[DSCDLRAM],
+	[BACHNUMB],
+	[TRXSORCE],
+	[BCHSOURC],
+	[DISCDATE],
+	[DUEDATE],
+	[PORDNMBR],
+	[TEN99AMNT],
+	[WROFAMNT],
+	[DISAMTAV],
+	[TRXDSCRN],
+	[UN1099AM],
+	[BKTPURAM],
+	[BKTFRTAM],
+	[BKTMSCAM],
+	[VOIDED],
+	[HOLD],
+	[CHEKBKID],
+	[DINVPDOF],
+	[PPSAMDED],
+	[PGRAMSBJ],
+	[GSTDSAMT],
+	[POSTEDDT],
+	[PTDUSRID],
+	[MODIFDT],
+	[MDFUSRID],
+	[PYENTTYP],
+	[CARDNAME],
+	[PRCHAMNT],
+	[TRDISAMT],
+	[MSCCHAMT],
+	[FRTAMNT],
+	[TAXAMNT],
+	[TTLPYMTS],
+	[CURNCYID],
+	[PYMTRMID],
+	[SHIPMTHD],
+	[TAXSCHID],
+	[PCHSCHID],
+	[FRTSCHID],
+	[MSCSCHID],
+	[PSTGDATE],
+	[DISAVTKN],
+	[CNTRLTYP],
+	[NOTEINDX],
+	[PRCTDISC],
+	[RETNAGAM],
+	[ICTRX],
+	[TAX_DATE],
+	[PRCHDATE],
+	[CORRCTN],
+	[SIMPLIFD],
+	[BNKRCAMT],
+	[APLYWITH],
+	[ELECTRONIC],
+	[ECTRX],
+	[DOCPRINTED],
+	[TAXINVREQD],
+	[VNDCHKNM],
+	[BACKOUTTRADEDISC],
+	[CBVAT],
+	[VADCDTRO],
+	[TEN99TYPE],
+	[TEN99BOXNUMBER],
+	[DEX_ROW_TS],
+	[DEX_ROW_ID],
+	[CAD_XCHGRATE],
+	[USD_XCHGRATE],
+	[PROJ]
+FROM (SELECT
+	*,
+	CASE
+		WHEN
+			REFRENCE LIKE '%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN AND
+			FISCALDATE < '2018M01' AND
+			DBO.ISVALIDPROJECTCODE(DBO.REMOVENUMBERSINSTRING(SUBSTRING(REFRENCE, PATINDEX('%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, REFRENCE), 6))) = 1 THEN DBO.REMOVENUMBERSINSTRING(SUBSTRING(REFRENCE, PATINDEX('%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, REFRENCE), 6))
+		WHEN
+			REFRENCE LIKE '%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN AND
+			FISCALDATE IN
+			(
+			'2018M01', '2018M02', '2018M03'
+			) AND
+			DBO.ISVALIDPROJECTCODE(DBO.REMOVENUMBERSINSTRING(SUBSTRING(REFRENCE, PATINDEX('%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, REFRENCE), 6))) = 1 THEN DBO.REMOVENUMBERSINSTRING(SUBSTRING(REFRENCE, PATINDEX('%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, REFRENCE), 6))
+		WHEN
+			REFRENCE LIKE '%[A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN AND
+			FISCALDATE >= '2018M01' AND
+			DBO.ISVALIDPROJECTCODE(SUBSTRING(REFRENCE, PATINDEX('%[A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, REFRENCE), 4)) = 1 THEN SUBSTRING(REFRENCE, PATINDEX('%[A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, REFRENCE), 4)
+		WHEN
+			DSCRIPTN LIKE '%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN AND
+			FISCALDATE < '2018M01' AND
+			DBO.ISVALIDPROJECTCODE(DBO.REMOVENUMBERSINSTRING(SUBSTRING(DSCRIPTN, PATINDEX('%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, DSCRIPTN), 6))) = 1 THEN DBO.REMOVENUMBERSINSTRING(SUBSTRING(DSCRIPTN, PATINDEX('%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, DSCRIPTN), 6))
+		WHEN
+			DSCRIPTN LIKE '%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN AND
+			FISCALDATE IN
+			(
+			'2018M01', '2018M02', '2018M03'
+			) AND
+			DBO.ISVALIDPROJECTCODE(DBO.REMOVENUMBERSINSTRING(SUBSTRING(DSCRIPTN, PATINDEX('%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, DSCRIPTN), 6))) = 1 THEN DBO.REMOVENUMBERSINSTRING(SUBSTRING(DSCRIPTN, PATINDEX('%[1-2][0-9][A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, DSCRIPTN), 6))
+		WHEN
+			DSCRIPTN LIKE '[A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN AND
+			FISCALDATE >= '2018M01' AND
+			DBO.ISVALIDPROJECTCODE(SUBSTRING(DSCRIPTN, PATINDEX('%[A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, DSCRIPTN), 4)) = 1 THEN SUBSTRING(DSCRIPTN, PATINDEX('%[A-Z][A-Z][A-Z][A-Z]%' COLLATE LATIN1_GENERAL_BIN, DSCRIPTN), 4)
+		ELSE 'NoProject'
+	END
+	AS PROJ
+FROM (SELECT
+	'10' AS [COMPANY_MEMBERKEY],
+	'Canada' AS [COMPANY],
+	'GAPCA' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAPCA.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 					--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 					--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 					--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [USDNET], 					--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 					--rlines.*, rdist.*,
+	--Exchange Rates
+	1.0000000 AS CAD_XCHGRATE,
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS USD_XCHGRATE
+FROM GAPCA.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAPCA.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GAPCA.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'CAD-USD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE))
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+----AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'20' AS [COMPANY_MEMBERKEY],
+	'Barbados' AS [COMPANY],
+	'GAPBR' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAPBR.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 								--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 								--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 								--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 								--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 								--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GAPBR.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAPBR.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GAPBR.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE))
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'30' AS [COMPANY_MEMBERKEY],
+	'Austrailia' AS [COMPANY],
+	'GAPAU' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAPAU.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 											--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 											--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 											--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH1.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH2.XCHGRATE AS numeric(18, 5)) AS [USDNET], 											--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 											--rlines.*, rdist.*,
+	--Exchange Rates
+	EXCH1.XCHGRATE AS CAD_XCHGRATE,
+	EXCH2.XCHGRATE AS USD_XCHGRATE
+FROM GAPAU.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAPAU.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GAPAU.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH1 WITH (NOLOCK)
+	ON (EXCH1.EXGTBLID = 'AUD-CAD-AVG'
+	AND MONTH(EXCH1.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH1.EXCHDATE) = YEAR(GLHEADER.TRXDATE))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH2 WITH (NOLOCK)
+	ON (EXCH2.EXGTBLID = 'AUD-USD-AVG'
+	AND MONTH(EXCH2.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH2.EXCHDATE) = YEAR(GLHEADER.TRXDATE))
+
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'70' AS [COMPANY_MEMBERKEY],
+	'Expedition' AS [COMPANY],
+	'EXPSH' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM EXPSH.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 														--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 														--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 														--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 														--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 														--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM EXPSH.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM EXPSH.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN EXPSH.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																		--Left Join    EXPSH.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+
+UNION ALL
+SELECT
+	'34' AS [COMPANY_MEMBERKEY],
+	'US' AS [COMPANY],
+	'GAPUS' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAPUS.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN)) 																			/*WHEN rlines.ITEMDESC LIKE '%-O[0-9] -%' AND substring(rlines.ITEMDESC, 1, 3) in
+											('AHR','AVC','CUC','CUS','DES','DIA','DPF','FAM','FIT',
+											'FLI','GAB','GAP','GAS','GAZ','GDP','GFI','GFP','GGF',
+											'GIP','GNA','GPA','GPD','GPE','GPF','GPG','GPI','GPO',
+											'GPS','GPX','GRF','GTD','ILM','ITS','JRB','PAA','PEE',
+											'PHM','PHP','PIM','PRO','RCH','RPL','SAP','SEG','SOL',
+											'SPP','STR','TGA','TSA','TSE','TXC',
+											'ACA','AMD','ATA','DIA','EXL','EXO','GAP','GCG',
+											'GGF','GLO','GNA','GPA','GPE','GPF','GPI','GPO',
+											'GPX','GRB','GWW','ITR','LTA','OTG','QRK','SUN',
+											'TKA','TOZ') THEN
+											LEFT(LTrim(RTrim(Cast(rlines.ITEMDESC As varchar))), CharIndex('-', LTrim(RTrim(Cast(rlines.ITEMDESC As varchar)))) + 2)*/
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																	--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																	--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																	--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																	--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																	--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GAPUS.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAPUS.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR) 																					
+LEFT JOIN GAPUS.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+
+UNION ALL
+SELECT
+	'32' AS [COMPANY_MEMBERKEY],
+	'UK' AS [COMPANY],
+	'GAPUK' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAPUK.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN)) 																						
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																				--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																				--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																				--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH1.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH2.XCHGRATE AS numeric(18, 5)) AS [USDNET], 																				--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																				--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH1.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	CAST(1 / EXCH2.XCHGRATE AS numeric(18, 7)) AS USD_XCHGRATE
+FROM GAPUK.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAPUK.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR) 																								
+LEFT JOIN GAPUK.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH1 WITH (NOLOCK)
+	ON (EXCH1.EXGTBLID = 'GBP-CAD-AVG'
+	AND MONTH(EXCH1.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH1.EXCHDATE) = YEAR(GLHEADER.TRXDATE))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH2 WITH (NOLOCK)
+	ON (EXCH2.EXGTBLID = 'GBP-USD-AVG'
+	AND MONTH(EXCH2.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH2.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																								
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'54' AS [COMPANY_MEMBERKEY],
+	'Costa Rica' AS [COMPANY],
+	'GAPCR' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAPCR.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN)) 																									
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																							--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																							--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																							--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																							--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																							--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GAPCR.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAPCR.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR) 																											/*Left Join	GAPCR.dbo.POP10500 rdist  -- receipt distros
+	on rdist.POPRCTNM = glheader.ORDOCNUM
+	and rdist.INVINDX = glheader.ACTINDX
+	and glheader.SOURCDOC = 'RECVG'
+	Left Join	GAPCR.dbo.POP10110 rlines  -- receipt lines
+	on rdist.POPRCTNM = rlines.PONUMBER
+	and rdist.OLDCUCST = rlines.OREXTCST*/
+LEFT JOIN GAPCR.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																											--Left Join    GAPCR.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+/*Left Join    PlanStage_DB.dbo.LU_COST_ABBRV abbr ON CASE WHEN glheader.DSCRIPTN LIKE '%-O[0-9]-%' THEN
+RIGHT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), (Len(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) - CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))))) - 3)
+ELSE
+'N-A'
+END = abbr.COST_TYPE_ABBREV */
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'50' AS [COMPANY_MEMBERKEY],
+	'Peru' AS [COMPANY],
+	'GAPPE' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAPPE.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	/*DOSSIER = CASE WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]-%' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 19 and glheader.DSCRIPTN is not NULL) THEN
+	
+	substring(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2), 4, Len(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2))-12 )
+	WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 15  and glheader.DSCRIPTN is not NULL) THEN
+	substring(rtrim(ltrim(glheader.DSCRIPTN)), 4, LEN(rtrim(ltrim(glheader.DSCRIPTN)))-12)
+	ELSE
+	'N-A'
+	END,*/
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN)) 																												/*WHEN rlines.ITEMDESC LIKE '%-O[0-9] -%' AND substring(rlines.ITEMDESC, 1, 3) in
+											('AHR','AVC','CUC','CUS','DES','DIA','DPF','FAM','FIT',
+											'FLI','GAB','GAP','GAS','GAZ','GDP','GFI','GFP','GGF',
+											'GIP','GNA','GPA','GPD','GPE','GPF','GPG','GPI','GPO',
+											'GPS','GPX','GRF','GTD','ILM','ITS','JRB','PAA','PEE',
+											'PHM','PHP','PIM','PRO','RCH','RPL','SAP','SEG','SOL',
+											'SPP','STR','TGA','TSA','TSE','TXC',
+											'ACA','AMD','ATA','DIA','EXL','EXO','GAP','GCG',
+											'GGF','GLO','GNA','GPA','GPE','GPF','GPI','GPO',
+											'GPX','GRB','GWW','ITR','LTA','OTG','QRK','SUN',
+											'TKA','TOZ') THEN
+											LEFT(LTrim(RTrim(Cast(rlines.ITEMDESC As varchar))), CharIndex('-', LTrim(RTrim(Cast(rlines.ITEMDESC As varchar)))) + 2)*/
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																										--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																										--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																										--Calculations
+	CAST((
+	CASE
+		WHEN
+			CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) IS NULL THEN CAST(((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / (SELECT
+			TOP 1
+				XCHGRATE
+			FROM PLANSTAGE_DB.DBO.VIEW_PENRATES
+			ORDER BY EXCHDATE ASC)
+			) AS numeric(18, 5))
+		ELSE CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5))
+	END
+	) * 1 / CADEXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	[USDNET] =
+											CASE
+												WHEN
+													CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) IS NULL THEN CAST(((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / (SELECT
+													TOP 1
+														XCHGRATE
+													FROM PLANSTAGE_DB.DBO.VIEW_PENRATES
+													ORDER BY EXCHDATE ASC)
+													) AS numeric(18, 5))
+												ELSE CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5))
+											END,
+	--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID,
+	--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST((1 / CADEXCH.XCHGRATE * 1 / EXCH.XCHGRATE) AS numeric(18, 7)) AS CAD_XCHGRATE,
+	CASE
+		WHEN
+			EXCH.XCHGRATE IS NULL THEN CAST(1 / (SELECT
+			TOP 1
+				XCHGRATE
+			FROM PLANSTAGE_DB.DBO.VIEW_PENRATES
+			ORDER BY EXCHDATE ASC)
+			AS numeric(18, 7))
+		ELSE CAST(1 / EXCH.XCHGRATE AS numeric(18, 7))
+	END
+	AS USD_XCHGRATE
+FROM GAPPE.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAPPE.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR) 																														/*Left Join	GAPPE.dbo.POP10500 rdist  -- receipt distros
+	on rdist.POPRCTNM = glheader.ORDOCNUM
+	and rdist.INVINDX = glheader.ACTINDX
+	and glheader.SOURCDOC = 'RECVG'
+	Left Join	GAPPE.dbo.POP10110 rlines  -- receipt lines
+	on rdist.POPRCTNM = rlines.PONUMBER
+	and rdist.OLDCUCST = rlines.OREXTCST*/
+LEFT JOIN GAPPE.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN PLANSTAGE_DB.DBO.VIEW_PENRATES EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'PEN-USD-AVG'
+	AND DAY(EXCH.EXCHDATE) = DAY(GLHEADER.TRXDATE)
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE))
+LEFT JOIN DYNAMICS.DBO.MC00100 CADEXCH WITH (NOLOCK)
+	ON (CADEXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(CADEXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(CADEXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																														--Left Join    GAPPE.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+/*Left Join    PlanStage_DB.dbo.LU_COST_ABBRV abbr ON CASE WHEN glheader.DSCRIPTN LIKE '%-O[0-9]-%' THEN
+RIGHT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), (Len(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) - CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))))) - 3)
+ELSE
+'N-A'
+END = abbr.COST_TYPE_ABBREV */
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+--------------------------------------------------------------------------------------------------------------
+-- New companies add 2015-08-26		TR
+--------------------------------------------------------------------------------------------------------------
+UNION ALL
+SELECT
+	'80' AS [COMPANY_MEMBERKEY],
+	'2244270 Ontario Inc' AS [COMPANY],
+	'ALINC' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM ALINC.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	/*DOSSIER = CASE WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]-%' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 19 and glheader.DSCRIPTN is not NULL) THEN
+	
+	substring(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2), 4, Len(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2))-12 )
+	WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 15  and glheader.DSCRIPTN is not NULL) THEN
+	substring(rtrim(ltrim(glheader.DSCRIPTN)), 4, LEN(rtrim(ltrim(glheader.DSCRIPTN)))-12)
+	ELSE
+	'N-A'
+	END,*/
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN)) 																															/*WHEN rlines.ITEMDESC LIKE '%-O[0-9] -%' AND substring(rlines.ITEMDESC, 1, 3) in
+											('AHR','AVC','CUC','CUS','DES','DIA','DPF','FAM','FIT',
+											'FLI','GAB','GAP','GAS','GAZ','GDP','GFI','GFP','GGF',
+											'GIP','GNA','GPA','GPD','GPE','GPF','GPG','GPI','GPO',
+											'GPS','GPX','GRF','GTD','ILM','ITS','JRB','PAA','PEE',
+											'PHM','PHP','PIM','PRO','RCH','RPL','SAP','SEG','SOL',
+											'SPP','STR','TGA','TSA','TSE','TXC',
+											'ACA','AMD','ATA','DIA','EXL','EXO','GAP','GCG',
+											'GGF','GLO','GNA','GPA','GPE','GPF','GPI','GPO',
+											'GPX','GRB','GWW','ITR','LTA','OTG','QRK','SUN',
+											'TKA','TOZ') THEN
+											LEFT(LTrim(RTrim(Cast(rlines.ITEMDESC As varchar))), CharIndex('-', LTrim(RTrim(Cast(rlines.ITEMDESC As varchar)))) + 2)*/
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																													--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																													--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																													--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [USDNET], 																													--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																													--rlines.*, rdist.*,
+	--Exchange Rates
+	1.0000000 AS CAD_XCHGRATE,
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS USD_XCHGRATE
+FROM ALINC.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM ALINC.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR) 																																	/*Left Join	ALINC.dbo.POP10500 rdist  -- receipt distros
+	on rdist.POPRCTNM = glheader.ORDOCNUM
+	and rdist.INVINDX = glheader.ACTINDX
+	and glheader.SOURCDOC = 'RECVG'
+	Left Join	ALINC.dbo.POP10110 rlines  -- receipt lines
+	on rdist.POPRCTNM = rlines.PONUMBER
+	and rdist.OLDCUCST = rlines.OREXTCST*/
+LEFT JOIN ALINC.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'CAD-USD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																																	--Left Join    ALINC.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+/*Left Join    PlanStage_DB.dbo.LU_COST_ABBRV abbr ON CASE WHEN glheader.DSCRIPTN LIKE '%-O[0-9]-%' THEN
+RIGHT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), (Len(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) - CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))))) - 3)
+ELSE
+'N-A'
+END = abbr.COST_TYPE_ABBREV */
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'82' AS [COMPANY_MEMBERKEY],
+	'Altun Group LTD' AS [COMPANY],
+	'ALGRP' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM ALGRP.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	/*DOSSIER = CASE WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]-%' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 19 and glheader.DSCRIPTN is not NULL) THEN
+	
+	substring(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2), 4, Len(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2))-12 )
+	WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 15  and glheader.DSCRIPTN is not NULL) THEN
+	substring(rtrim(ltrim(glheader.DSCRIPTN)), 4, LEN(rtrim(ltrim(glheader.DSCRIPTN)))-12)
+	ELSE
+	'N-A'
+	END,*/
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN)) 																																		/*WHEN rlines.ITEMDESC LIKE '%-O[0-9] -%' AND substring(rlines.ITEMDESC, 1, 3) in
+											('AHR','AVC','CUC','CUS','DES','DIA','DPF','FAM','FIT',
+											'FLI','GAB','GAP','GAS','GAZ','GDP','GFI','GFP','GGF',
+											'GIP','GNA','GPA','GPD','GPE','GPF','GPG','GPI','GPO',
+											'GPS','GPX','GRF','GTD','ILM','ITS','JRB','PAA','PEE',
+											'PHM','PHP','PIM','PRO','RCH','RPL','SAP','SEG','SOL',
+											'SPP','STR','TGA','TSA','TSE','TXC',
+											'ACA','AMD','ATA','DIA','EXL','EXO','GAP','GCG',
+											'GGF','GLO','GNA','GPA','GPE','GPF','GPI','GPO',
+											'GPX','GRB','GWW','ITR','LTA','OTG','QRK','SUN',
+											'TKA','TOZ') THEN
+											LEFT(LTrim(RTrim(Cast(rlines.ITEMDESC As varchar))), CharIndex('-', LTrim(RTrim(Cast(rlines.ITEMDESC As varchar)))) + 2)*/
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [USDNET], 																																--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																--rlines.*, rdist.*,
+	--Exchange Rates
+	1.0000000 AS CAD_XCHGRATE,
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS USD_XCHGRATE
+FROM ALGRP.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM ALGRP.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR) 																																				/*Left Join	ALGRP.dbo.POP10500 rdist  -- receipt distros
+	on rdist.POPRCTNM = glheader.ORDOCNUM
+	and rdist.INVINDX = glheader.ACTINDX
+	and glheader.SOURCDOC = 'RECVG'
+	Left Join	ALGRP.dbo.POP10110 rlines  -- receipt lines
+	on rdist.POPRCTNM = rlines.PONUMBER
+	and rdist.OLDCUCST = rlines.OREXTCST*/
+LEFT JOIN ALGRP.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'CAD-USD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																																				--Left Join    ALGRP.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+/*Left Join    PlanStage_DB.dbo.LU_COST_ABBRV abbr ON CASE WHEN glheader.DSCRIPTN LIKE '%-O[0-9]-%' THEN
+RIGHT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), (Len(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) - CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))))) - 3)
+ELSE
+'N-A'
+END = abbr.COST_TYPE_ABBREV */
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'84' AS [COMPANY_MEMBERKEY],
+	'Altun Investments Inc' AS [COMPANY],
+	'ALINV' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM ALINV.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	/*DOSSIER = CASE WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]-%' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 19 and glheader.DSCRIPTN is not NULL) THEN
+	
+	substring(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2), 4, Len(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2))-12 )
+	WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 15  and glheader.DSCRIPTN is not NULL) THEN
+	substring(rtrim(ltrim(glheader.DSCRIPTN)), 4, LEN(rtrim(ltrim(glheader.DSCRIPTN)))-12)
+	ELSE
+	'N-A'
+	END,*/
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN)) 																																					/*WHEN rlines.ITEMDESC LIKE '%-O[0-9] -%' AND substring(rlines.ITEMDESC, 1, 3) in
+											('AHR','AVC','CUC','CUS','DES','DIA','DPF','FAM','FIT',
+											'FLI','GAB','GAP','GAS','GAZ','GDP','GFI','GFP','GGF',
+											'GIP','GNA','GPA','GPD','GPE','GPF','GPG','GPI','GPO',
+											'GPS','GPX','GRF','GTD','ILM','ITS','JRB','PAA','PEE',
+											'PHM','PHP','PIM','PRO','RCH','RPL','SAP','SEG','SOL',
+											'SPP','STR','TGA','TSA','TSE','TXC',
+											'ACA','AMD','ATA','DIA','EXL','EXO','GAP','GCG',
+											'GGF','GLO','GNA','GPA','GPE','GPF','GPI','GPO',
+											'GPX','GRB','GWW','ITR','LTA','OTG','QRK','SUN',
+											'TKA','TOZ') THEN
+											LEFT(LTrim(RTrim(Cast(rlines.ITEMDESC As varchar))), CharIndex('-', LTrim(RTrim(Cast(rlines.ITEMDESC As varchar)))) + 2)*/
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																			--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																			--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																			--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																			--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																			--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM ALINV.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM ALINV.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR) 																																							/*Left Join	ALINV.dbo.POP10500 rdist  -- receipt distros
+	on rdist.POPRCTNM = glheader.ORDOCNUM
+	and rdist.INVINDX = glheader.ACTINDX
+	and glheader.SOURCDOC = 'RECVG'
+	Left Join	ALINV.dbo.POP10110 rlines  -- receipt lines
+	on rdist.POPRCTNM = rlines.PONUMBER
+	and rdist.OLDCUCST = rlines.OREXTCST*/
+LEFT JOIN ALINV.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																																							--Left Join    ALINV.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+/*Left Join    PlanStage_DB.dbo.LU_COST_ABBRV abbr ON CASE WHEN glheader.DSCRIPTN LIKE '%-O[0-9]-%' THEN
+RIGHT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), (Len(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) - CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))))) - 3)
+ELSE
+'N-A'
+END = abbr.COST_TYPE_ABBREV */
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'33' AS [COMPANY_MEMBERKEY],
+	'G Adventures GmbH' AS [COMPANY],
+	'GADVG' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GADVG.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN)) 																																								/*WHEN rlines.ITEMDESC LIKE '%-O[0-9] -%' AND substring(rlines.ITEMDESC, 1, 3) in
+											('AHR','AVC','CUC','CUS','DES','DIA','DPF','FAM','FIT',
+											'FLI','GAB','GAP','GAS','GAZ','GDP','GFI','GFP','GGF',
+											'GIP','GNA','GPA','GPD','GPE','GPF','GPG','GPI','GPO',
+											'GPS','GPX','GRF','GTD','ILM','ITS','JRB','PAA','PEE',
+											'PHM','PHP','PIM','PRO','RCH','RPL','SAP','SEG','SOL',
+											'SPP','STR','TGA','TSA','TSE','TXC',
+											'ACA','AMD','ATA','DIA','EXL','EXO','GAP','GCG',
+											'GGF','GLO','GNA','GPA','GPE','GPF','GPI','GPO',
+											'GPX','GRB','GWW','ITR','LTA','OTG','QRK','SUN',
+											'TKA','TOZ') THEN
+											LEFT(LTrim(RTrim(Cast(rlines.ITEMDESC As varchar))), CharIndex('-', LTrim(RTrim(Cast(rlines.ITEMDESC As varchar)))) + 2)*/
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																						--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																						--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																						--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																						--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																						--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GADVG.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GADVG.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GADVG.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																																										--Left Join    GADVG.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'51' AS [COMPANY_MEMBERKEY],
+	'G Adventures BA S.R.L (Argentina)' AS [COMPANY],
+	'GAVBA' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAVBA.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																									--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																									--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																									--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																									--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																									--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GAVBA.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAVBA.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GAVBA.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																																													--Left Join    GAVBA.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'58' AS [COMPANY_MEMBERKEY],
+	'G Adventures South Africa (PTY) Ltd' AS [COMPANY],
+	'GAPSA' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAPSA.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																												--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																												--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																												--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																												--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																												--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GAPSA.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAPSA.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GAPSA.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE))
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'52' AS [COMPANY_MEMBERKEY],
+	'G Adventures S.A. Gadsador' AS [COMPANY],
+	'GAPEC' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAPEC.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																															--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																															--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																															--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																															--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																															--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GAPEC.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAPEC.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GAPEC.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																																																			--Left Join    GAPEC.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'53' AS [COMPANY_MEMBERKEY],
+	'G ADVENTURES (II) PTY. LTD' AS [COMPANY],
+	'GAVAU' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAVAU.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																																		--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																																		--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																																		--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																																		--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																																		--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GAVAU.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAVAU.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GAVAU.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE))
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'56' AS [COMPANY_MEMBERKEY],
+	'G Adventures Kenya Ltd' AS [COMPANY],
+	'GAVKA' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAVKA.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																																					--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																																					--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																																					--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																																					--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																																					--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GAVKA.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAVKA.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GAVKA.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																																																									--Left Join    GAVKA.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'55' AS [COMPANY_MEMBERKEY],
+	'G Adventures Asia Company Limited' AS [COMPANY],
+	'GAPAS' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAPAS.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																																								--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																																								--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																																								--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																																								--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																																								--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GAPAS.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAPAS.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GAPAS.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE))
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'61' AS [COMPANY_MEMBERKEY],
+	'G Adventures Holding Company limited' AS [COMPANY],
+	'GAPAH' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GAPAH.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																																											--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																																											--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																																											--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																																											--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																																											--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GAPAH.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GAPAH.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GAPAH.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																																																															--Left Join    GAPAH.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+/*Left Join    PlanStage_DB.dbo.LU_COST_ABBRV abbr ON CASE WHEN glheader.DSCRIPTN LIKE '%-O[0-9]-%' THEN
+RIGHT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), (Len(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) - CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))))) - 3)
+ELSE
+'N-A'
+END = abbr.COST_TYPE_ABBREV */
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'86' AS [COMPANY_MEMBERKEY],
+	'2381895 Ontario Inc.' AS [COMPANY],
+	'ONINC' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM ONINC.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	/*DOSSIER = CASE WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]-%' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 19 and glheader.DSCRIPTN is not NULL) THEN
+	
+	substring(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2), 4, Len(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2))-12 )
+	WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 15  and glheader.DSCRIPTN is not NULL) THEN
+	substring(rtrim(ltrim(glheader.DSCRIPTN)), 4, LEN(rtrim(ltrim(glheader.DSCRIPTN)))-12)
+	ELSE
+	'N-A'
+	END,*/
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																																														--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																																														--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																																														--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																																														--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																																														--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM ONINC.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM ONINC.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR) 																																																																		/*Left Join	ALINV.dbo.POP10500 rdist  -- receipt distros
+	on rdist.POPRCTNM = glheader.ORDOCNUM
+	and rdist.INVINDX = glheader.ACTINDX
+	and glheader.SOURCDOC = 'RECVG'
+	Left Join	ONINC.dbo.POP10110 rlines  -- receipt lines
+	on rdist.POPRCTNM = rlines.PONUMBER
+	and rdist.OLDCUCST = rlines.OREXTCST*/
+LEFT JOIN ONINC.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																																																																		--Left Join    ONINC.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+/*Left Join    PlanStage_DB.dbo.LU_COST_ABBRV abbr ON CASE WHEN glheader.DSCRIPTN LIKE '%-O[0-9]-%' THEN
+RIGHT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), (Len(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) - CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))))) - 3)
+ELSE
+'N-A'
+END = abbr.COST_TYPE_ABBREV */
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'74' AS [COMPANY_MEMBERKEY],
+	'G Cruising and Expeditions Limited' AS [COMPANY],
+	'GCEXP' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GCEXP.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	/*DOSSIER = CASE WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]-%' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 19 and glheader.DSCRIPTN is not NULL) THEN
+	
+	substring(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2), 4, Len(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2))-12 )
+	WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 15  and glheader.DSCRIPTN is not NULL) THEN
+	substring(rtrim(ltrim(glheader.DSCRIPTN)), 4, LEN(rtrim(ltrim(glheader.DSCRIPTN)))-12)
+	ELSE
+	'N-A'
+	END,*/
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN)) 																																																																			/*WHEN rlines.ITEMDESC LIKE '%-O[0-9] -%' AND substring(rlines.ITEMDESC, 1, 3) in
+											('AHR','AVC','CUC','CUS','DES','DIA','DPF','FAM','FIT',
+											'FLI','GAB','GAP','GAS','GAZ','GDP','GFI','GFP','GGF',
+											'GIP','GNA','GPA','GPD','GPE','GPF','GPG','GPI','GPO',
+											'GPS','GPX','GRF','GTD','ILM','ITS','JRB','PAA','PEE',
+											'PHM','PHP','PIM','PRO','RCH','RPL','SAP','SEG','SOL',
+											'SPP','STR','TGA','TSA','TSE','TXC',
+											'ACA','AMD','ATA','DIA','EXL','EXO','GAP','GCG',
+											'GGF','GLO','GNA','GPA','GPE','GPF','GPI','GPO',
+											'GPX','GRB','GWW','ITR','LTA','OTG','QRK','SUN',
+											'TKA','TOZ') THEN
+											LEFT(LTrim(RTrim(Cast(rlines.ITEMDESC As varchar))), CharIndex('-', LTrim(RTrim(Cast(rlines.ITEMDESC As varchar)))) + 2)*/
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																																																	--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																																																	--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																																																	--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																																																	--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																																																	--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GCEXP.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GCEXP.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR) 																																																																					/*Left Join	GCEXP.dbo.POP10500 rdist  -- receipt distros
+	on rdist.POPRCTNM = glheader.ORDOCNUM
+	and rdist.INVINDX = glheader.ACTINDX
+	and glheader.SOURCDOC = 'RECVG'
+	Left Join	GCEXP.dbo.POP10110 rlines  -- receipt lines
+	on rdist.POPRCTNM = rlines.PONUMBER
+	and rdist.OLDCUCST = rlines.OREXTCST*/
+LEFT JOIN GCEXP.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																																																																					--Left Join    GCEXP.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+/*Left Join    PlanStage_DB.dbo.LU_COST_ABBRV abbr ON CASE WHEN glheader.DSCRIPTN LIKE '%-O[0-9]-%' THEN
+RIGHT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), (Len(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) - CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))))) - 3)
+ELSE
+'N-A'
+END = abbr.COST_TYPE_ABBREV */
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+UNION ALL
+SELECT
+	'62' AS [COMPANY_MEMBERKEY],
+	'G ADVENTURES (THAILAND)CO.LTD' AS [COMPANY],
+	'GADTH' AS [DATNAME],
+	(SELECT
+		FUNCURR.FUNLCURR
+	FROM GCEXP.DBO.MC40000 FUNCURR)
+	AS [FUNCTIONAL_CURNCYID],
+	/*DOSSIER = CASE WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]-%' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 19 and glheader.DSCRIPTN is not NULL) THEN
+	
+	substring(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2), 4, Len(LEFT(LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar))), CharIndex('-', LTrim(RTrim(Cast(glheader.DSCRIPTN As varchar)))) + 2))-12 )
+	WHEN (glheader.DSCRIPTN LIKE '%-O[0-9]' AND len(rtrim(ltrim(glheader.DSCRIPTN))) >= 15  and glheader.DSCRIPTN is not NULL) THEN
+	substring(rtrim(ltrim(glheader.DSCRIPTN)), 4, LEN(rtrim(ltrim(glheader.DSCRIPTN)))-12)
+	ELSE
+	'N-A'
+	END,*/
+	TRIPCODE =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR',
+													'AVC',
+													'CUC',
+													'CUS',
+													'DES',
+													'DIA',
+													'DPF',
+													'FAM',
+													'FIT',
+													'FLI',
+													'GAB',
+													'GAP',
+													'GAS',
+													'GAZ',
+													'GDP',
+													'GFI',
+													'GFP',
+													'GGF',
+													'GIP',
+													'GNA',
+													'GPA',
+													'GPD',
+													'GPE',
+													'GPF',
+													'GPG',
+													'GPI',
+													'GPO',
+													'GPS',
+													'GPX',
+													'GRF',
+													'GTD',
+													'ILM',
+													'ITS',
+													'JRB',
+													'PAA',
+													'PEE',
+													'PHM',
+													'PHP',
+													'PIM',
+													'PRO',
+													'RCH',
+													'RPL',
+													'SAP',
+													'SEG',
+													'SOL',
+													'SPP',
+													'STR',
+													'TGA',
+													'TSA',
+													'TSE',
+													'TXC',
+													'ACA',
+													'AMD',
+													'ATA',
+													'DIA',
+													'EXL',
+													'EXO',
+													'GAP',
+													'GCG',
+													'GGF',
+													'GLO',
+													'GNA',
+													'GPA',
+													'GPE',
+													'GPF',
+													'GPI',
+													'GPO',
+													'GPX',
+													'GRB',
+													'GWW',
+													'ITR',
+													'LTA',
+													'OTG',
+													'QRK',
+													'SUN',
+													'TKA',
+													'TOZ'
+													) THEN LEFT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))), CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) + 2)
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]' AND
+													SUBSTRING(GLHEADER.DSCRIPTN, 1, 3) IN
+													(
+													'AHR', 'AVC', 'CUC', 'CUS', 'DES', 'DIA', 'DPF', 'FAM', 'FIT', 'FLI', 'GAB', 'GAP', 'GAS', 'GAZ', 'GDP', 'GFI', 'GFP', 'GGF', 'GIP', 'GNA', 'GPA', 'GPD', 'GPE', 'GPF', 'GPG', 'GPI', 'GPO', 'GPS', 'GPX', 'GRF', 'GTD', 'ILM', 'ITS', 'JRB', 'PAA', 'PEE', 'PHM', 'PHP', 'PIM', 'PRO', 'RCH', 'RPL', 'SAP', 'SEG', 'SOL', 'SPP', 'STR', 'TGA', 'TSA', 'TSE', 'TXC', 'ACA', 'AMD', 'ATA', 'DIA', 'EXL', 'EXO', 'GAP', 'GCG', 'GGF', 'GLO', 'GNA', 'GPA', 'GPE', 'GPF', 'GPI', 'GPO', 'GPX', 'GRB', 'GWW', 'ITR', 'LTA', 'OTG', 'QRK', 'SUN', 'TKA', 'TOZ'
+													) THEN RTRIM(LTRIM(GLHEADER.DSCRIPTN))
+												ELSE 'N-A'
+											END,
+	CATEGORY =
+											CASE
+												WHEN
+													GLHEADER.DSCRIPTN LIKE '%-O[0-9]-%' THEN (SELECT
+														ABBR.COST_TYPE_NAME
+													FROM LU_COST_ABBRV ABBR
+													WHERE ABBR.COST_TYPE_ABBREV = RIGHT(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))),
+													(
+													LEN(LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar)))) - CHARINDEX('-', LTRIM(RTRIM(CAST(GLHEADER.DSCRIPTN AS varchar))))
+													)
+													- 3))
+												ELSE GL100.ACTDESCR
+											END,
+	PAID_BY =
+										CASE
+											WHEN
+												RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+													WHEN
+														GLHEADER.ORGNTSRC LIKE '%COGS%' THEN CASE
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%TO%' THEN 'TO'
+															WHEN
+																GLHEADER.ORGNTSRC LIKE '%LO%' THEN 'LO'
+															ELSE 'N-A'
+														END
+													ELSE 'N-A'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%COGS%' THEN CASE
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%LO%' THEN 'LO'
+													WHEN
+														PMVIEW.BACHNUMB LIKE '%TO%' THEN 'TO'
+												END
+											WHEN
+												PMVIEW.BACHNUMB LIKE '%ICTRX%' THEN 'TO'
+											WHEN
+												PMVIEW.BACHNUMB LIKE 'DM-%-C' THEN 'Ldr'
+											WHEN
+												GLHEADER.SOURCDOC = 'RECVG' OR
+												GLHEADER.SOURCDOC = 'POIVC' THEN 'TO'
+											ELSE 'N-A'
+										END,
+	VENDOR_CODE =
+														CASE
+															WHEN
+																RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'GJ' THEN CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'OV-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'TL-%' OR
+																		RTRIM(LTRIM(GLHEADER.REFRENCE)) LIKE 'GV-%' THEN LEFT(RTRIM(LTRIM(GLHEADER.REFRENCE)), 11) + '-' + RTRIM(LTRIM(GLHEADER.CURNCYID))
+																	ELSE 'N-A'
+																END
+															/*WHEN rtrim(ltrim(glheader.SOURCDOC)) = 'RECVG' THEN
+											rtrim(ltrim(rdist.VENDORID))*/
+															ELSE CASE
+																	WHEN
+																		RTRIM(LTRIM(GLHEADER.SOURCDOC)) = 'PMTRX' THEN RTRIM(LTRIM(PMVIEW.VENDORID))
+																	ELSE 'N-A'
+																END
+														END,
+	VENDOR.VENDNAME VENDOR_NAME,
+	GLHEADER.USWHPSTD AS POSTINGUSER,
+	CAST(
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN YEAR(GLHEADER.TRXDATE) + 1
+		ELSE YEAR(GLHEADER.TRXDATE)
+	END
+	AS varchar(5)) + 'M' +
+	CASE
+		WHEN
+			MONTH(GLHEADER.TRXDATE) > 7 THEN SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, -7, GLHEADER.TRXDATE), 112), 5, 2)
+		ELSE SUBSTRING(CONVERT(nvarchar(6), DATEADD(MONTH, +5, GLHEADER.TRXDATE), 112), 5, 2)
+	END
+	AS [FISCALDATE],
+	GLHEADER.ORDBTAMT - GLHEADER.ORCRDAMT AS [ORGNET],
+	GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT AS [FUNCNET], 																																																																				--Chart of Accounts
+	GL100.ACTINDX,
+	GL100.ACTNUMBR_1 AS [SEG1_COMPANY],
+	GL100.ACTNUMBR_2 AS [SEG2_TERRITORY],
+	GL100.ACTNUMBR_3 AS [SEG3_DEPT],
+	GL100.ACTNUMBR_4 AS [SEG4_OFFICE],
+	GL100.ACTNUMBR_5 AS [SEG5_MAIN],
+	GL100.ACTNUMBR_5 AS [SEG5_SERV],
+	GL100.ACTDESCR, 																																																																				--General Ledger
+	GLHEADER.JRNENTRY,
+	GLHEADER.TRXDATE,
+	GLHEADER.REFRENCE,
+	GLHEADER.DSCRIPTN,
+	GLHEADER.SOURCDOC,
+	GLHEADER.ORDOCNUM,
+	GLHEADER.ORGNTSRC,
+	GLHEADER.CURNCYID AS [GLCURNCYID],
+	GLHEADER.ORDBTAMT,
+	GLHEADER.DEBITAMT,
+	GLHEADER.ORCRDAMT,
+	GLHEADER.CRDTAMNT,
+	GLHEADER.ORPSTDDT, 																																																																				--Calculations
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1 / EXCH.XCHGRATE AS numeric(18, 5)) AS [CADNET],
+	CAST((GLHEADER.DEBITAMT - GLHEADER.CRDTAMNT) * 1.0000000 AS numeric(18, 5)) AS [USDNET], 																																																																				--Payables
+	PMVIEW.VCHRNMBR,
+	PMVIEW.VENDORID,
+	PMVIEW.DOCTYPE,
+	PMVIEW.DOCDATE,
+	PMVIEW.DOCNUMBR,
+	PMVIEW.DOCAMNT,
+	PMVIEW.CURTRXAM,
+	PMVIEW.DISTKNAM,
+	PMVIEW.DISCAMNT,
+	PMVIEW.DSCDLRAM,
+	PMVIEW.BACHNUMB,
+	PMVIEW.TRXSORCE,
+	PMVIEW.BCHSOURC,
+	PMVIEW.DISCDATE,
+	PMVIEW.DUEDATE,
+	PMVIEW.PORDNMBR,
+	PMVIEW.TEN99AMNT,
+	PMVIEW.WROFAMNT,
+	PMVIEW.DISAMTAV,
+	PMVIEW.TRXDSCRN,
+	PMVIEW.UN1099AM,
+	PMVIEW.BKTPURAM,
+	PMVIEW.BKTFRTAM,
+	PMVIEW.BKTMSCAM,
+	PMVIEW.VOIDED,
+	PMVIEW.HOLD,
+	PMVIEW.CHEKBKID,
+	PMVIEW.DINVPDOF,
+	PMVIEW.PPSAMDED,
+	PMVIEW.PGRAMSBJ,
+	PMVIEW.GSTDSAMT,
+	PMVIEW.POSTEDDT,
+	PMVIEW.PTDUSRID,
+	PMVIEW.MODIFDT,
+	PMVIEW.MDFUSRID,
+	PMVIEW.PYENTTYP,
+	PMVIEW.CARDNAME,
+	PMVIEW.PRCHAMNT,
+	PMVIEW.TRDISAMT,
+	PMVIEW.MSCCHAMT,
+	PMVIEW.FRTAMNT,
+	PMVIEW.TAXAMNT,
+	PMVIEW.TTLPYMTS,
+	PMVIEW.CURNCYID,
+	PMVIEW.PYMTRMID,
+	PMVIEW.SHIPMTHD,
+	PMVIEW.TAXSCHID,
+	PMVIEW.PCHSCHID,
+	PMVIEW.FRTSCHID,
+	PMVIEW.MSCSCHID,
+	PMVIEW.PSTGDATE,
+	PMVIEW.DISAVTKN,
+	PMVIEW.CNTRLTYP,
+	PMVIEW.NOTEINDX,
+	PMVIEW.PRCTDISC,
+	PMVIEW.RETNAGAM,
+	PMVIEW.ICTRX,
+	PMVIEW.TAX_DATE,
+	PMVIEW.PRCHDATE,
+	PMVIEW.CORRCTN,
+	PMVIEW.SIMPLIFD,
+	PMVIEW.BNKRCAMT,
+	PMVIEW.APLYWITH,
+	PMVIEW.ELECTRONIC,
+	PMVIEW.ECTRX,
+	PMVIEW.DOCPRINTED,
+	PMVIEW.TAXINVREQD,
+	PMVIEW.VNDCHKNM,
+	PMVIEW.BACKOUTTRADEDISC,
+	PMVIEW.CBVAT,
+	PMVIEW.VADCDTRO,
+	PMVIEW.TEN99TYPE,
+	PMVIEW.TEN99BOXNUMBER,
+	GLHEADER.DEX_ROW_TS,
+	GLHEADER.DEX_ROW_ID, 																																																																				--rlines.*, rdist.*,
+	--Exchange Rates
+	CAST(1 / EXCH.XCHGRATE AS numeric(18, 7)) AS CAD_XCHGRATE,
+	1.0000000 AS USD_XCHGRATE
+FROM GADTH.DBO.VW_GL_OPEN_HISTORY_UNION GLHEADER WITH (NOLOCK)
+LEFT JOIN (SELECT
+	*
+FROM (SELECT
+	*,
+	RN = ROW_NUMBER() OVER (PARTITION BY DOCNUMBR, TRXSORCE
+	ORDER BY
+	DUEDATE DESC)
+FROM GADTH.DBO.VW_PM_OPEN_HISTORY_UNION_ALL WITH (NOLOCK)) X
+WHERE RN = 1) PMVIEW
+	ON (GLHEADER.ORGNTSRC = PMVIEW.TRXSORCE
+	AND GLHEADER.ORDOCNUM = PMVIEW.DOCNUMBR)
+LEFT JOIN GADTH.DBO.GL00100 GL100 WITH (NOLOCK)
+	ON GLHEADER.ACTINDX = GL100.ACTINDX
+LEFT JOIN GAPCA.DBO.PM00200 VENDOR
+	ON LTRIM(RTRIM(PMVIEW.VENDORID)) = LTRIM(RTRIM(VENDOR.VENDORID))
+LEFT JOIN DYNAMICS.DBO.MC00100 EXCH WITH (NOLOCK)
+	ON (EXCH.EXGTBLID = 'USD-CAD-AVG'
+	AND MONTH(EXCH.EXCHDATE) = MONTH(GLHEADER.TRXDATE)
+	AND YEAR(EXCH.EXCHDATE) = YEAR(GLHEADER.TRXDATE)) 																																																																								--Left Join    GADTH.dbo.MC40000 funcurr WITH (NOLOCK) ON (1=1) 
+WHERE (
+LTRIM(GL100.ACTNUMBR_5) >= 10000
+AND LTRIM(GL100.ACTNUMBR_5) < 99999
+)
+
+--AND glheader.REFRENCE <> 'Balance Brought Forward'
+) T 			-- END MAIN SELECT
+) A

@@ -1,0 +1,2 @@
+﻿CREATE USER [GADVENTURES\prestonm] FOR LOGIN [GADVENTURES\prestonm];
+

@@ -1,0 +1,9 @@
+﻿CREATE TABLE [dbo].[ALL_ACTUALS_STAGING] (
+    [ROW_KEY]     NVARCHAR (54) NULL,
+    [VENDOR_NAME] CHAR (65)     NULL,
+    [REFRENCE]    CHAR (31)     NOT NULL,
+    [DSCRIPTN]    CHAR (31)     NOT NULL,
+    [PROJ]        VARCHAR (50)  NULL,
+    [DEX_ROW_TS]  DATETIME      NOT NULL
+);
+

@@ -1,0 +1,7 @@
+﻿CREATE TABLE [dbo].[view_Rates] (
+    [EXCHDATE] DATETIME        NULL,
+    [EXGTBLID] VARCHAR (15)    NULL,
+    [CURNCYID] VARCHAR (15)    NULL,
+    [XCHGRATE] NUMERIC (19, 7) NULL
+);
+

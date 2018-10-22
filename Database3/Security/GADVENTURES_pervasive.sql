@@ -1,0 +1,2 @@
+﻿CREATE USER [GADVENTURES\pervasive] FOR LOGIN [GADVENTURES\pervasive];
+

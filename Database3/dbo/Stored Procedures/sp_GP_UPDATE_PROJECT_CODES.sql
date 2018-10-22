@@ -1,0 +1,16 @@
+﻿
+
+
+CREATE PROCEDURE [dbo].[sp_GP_UPDATE_PROJECT_CODES]
+	
+AS
+BEGIN
+	TRUNCATE TABLE [PlanStage_DB].[dbo].[BUD_PROJECT_CODES];
+
+	INSERT INTO 
+	[PlanStage_DB].[dbo].[BUD_PROJECT_CODES]
+	  ([PROJECTCODE])         
+	select [PROJECTCODE] from view_BUD_PROJECT_CODES
+	order by 1;
+
+END
